@@ -71,7 +71,7 @@ Extracts textures directly from the currently running game's ISO filesystem with
 5. Launch PPSSPP normally.
 
 The tools are found at:  
-`Settings → Tools → Developer Tools → Texture Replacement`
+`Settings → Tools → Developer tools → Texture replacement`
 
 ---
 
