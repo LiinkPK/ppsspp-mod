@@ -1,0 +1,16 @@
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\Alloc.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\Alloc.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\Bra.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\Bra.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\Bra86.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\Bra86.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\BraIA64.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\BraIA64.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\CpuArch.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\CpuArch.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\Delta.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\Delta.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\LzFind.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\LzFind.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\Lzma86Dec.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\Lzma86Dec.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\LzmaDec.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\LzmaDec.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\LzmaEnc.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\LzmaEnc.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\deps\lzma-24.05\src\Sort.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\Sort.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\src\libchdr_bitstream.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\libchdr_bitstream.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\src\libchdr_cdrom.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\libchdr_cdrom.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\src\libchdr_chd.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\libchdr_chd.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\src\libchdr_flac.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\libchdr_flac.obj
+C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\src\libchdr_huffman.c;C:\Users\javi_\Documents\GitHub\ppsspp\ext\libchdr\bin\obj\libchdr_x64_Release\libchdr_huffman.obj
