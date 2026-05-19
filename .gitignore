@@ -18,6 +18,7 @@
 *.aps
 *.exp
 *.qdact
+*.tlog
 controls.ini
 desktop.ini
 Debug

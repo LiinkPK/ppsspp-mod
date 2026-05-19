@@ -177,10 +177,14 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 				fread(fileData.data(), 1, fsize, gf);
 				fclose(gf);
 
-				// Get output subfolder — named after the file without extension
 				std::string fname = path.substr(path.find_last_of("/\\") + 1);
 				std::string fnameNoExt = fname.substr(0, fname.rfind('.'));
-				std::string outDir = (GetSysDirectory(DIRECTORY_TEXTURES) / gameID / "new" / fnameNoExt).ToString();
+				std::string fnameLowerCheck = fname;
+				for (auto& ch : fnameLowerCheck) ch = (char)tolower((unsigned char)ch);
+				bool isGIM = fnameLowerCheck.size() >= 4 && fnameLowerCheck.substr(fnameLowerCheck.size() - 4) == ".gim";
+				std::string outDir = isGIM
+					? (GetSysDirectory(DIRECTORY_TEXTURES) / gameID / "new").ToString()
+					: (GetSysDirectory(DIRECTORY_TEXTURES) / gameID / "new" / fnameNoExt).ToString();
 
 				// Scan for all GIM magic offsets in the file
 				struct GimRef { s64 offset; u32 len; };
@@ -200,29 +204,25 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 				}
 				for (const GimRef& gr : gimOffsets) {
 					try {
-					u32 gimLen = gr.len;
-					if (gr.offset + (s64)gimLen > (s64)fsize)
-						gimLen = (u32)((s64)fsize - gr.offset);
-					FlushAllocs();
-					s64 gimOffset = gr.offset;
-					u32 gimPSP = userMemory.Alloc(gimLen, false, "folder_gim");
-					if (gimPSP == (u32)-1) continue;
-					if (!Memory::IsValidAddress(gimPSP) || !Memory::IsValidAddress(gimPSP + gimLen - 1)) {
-						userMemory.Free(gimPSP);
-						continue;
-					}
-					if (!Memory::IsValidRange(gimPSP, gimLen)) { userMemory.Free(gimPSP); continue; }
-					u8* dst = (u8*)Memory::GetPointer(gimPSP);
-					if (dst && gimOffset + (s64)gimLen <= (s64)fsize) { if (!SafeMemcpy(dst, fileData.data() + gimOffset, gimLen)) { userMemory.Free(gimPSP); continue; } }
-					else { userMemory.Free(gimPSP); continue; }
-					allocs.push_back(gimPSP);
+						u32 gimLen = gr.len;
+						if (gr.offset + (s64)gimLen > (s64)fsize)
+							gimLen = (u32)((s64)fsize - gr.offset);
+						FlushAllocs();
+						s64 gimOffset = gr.offset;
+						u32 gimPSP = userMemory.Alloc(gimLen, false, "folder_gim");
+						if (gimPSP == (u32)-1) {
+							FlushAllocs();
+							gimPSP = userMemory.Alloc(gimLen, false, "folder_gim");
+							if (gimPSP == (u32)-1) continue;
+						}
+						Memory::MemcpyUnchecked(gimPSP, fileData.data() + gimOffset, gimLen);
+						allocs.push_back(gimPSP);
 
 					struct Block { u16 type; u32 addr; u16 fmt, w, h; u32 pos; u16 swizzle; u16 c16; };
 					std::vector<Block> blocks;
 					{
 						u32 pos = 16;
 						while (pos + 16 <= gimLen) {
-							if (gimOffset + pos + 8 > (s64)fsize) break;
 							u16 btype = *(u16*)(fileData.data() + gimOffset + pos);
 							u32 blen = *(u32*)(fileData.data() + gimOffset + pos + 4);
 							if (blen < 16 || pos + blen > gimLen) break;
