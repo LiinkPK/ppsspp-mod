@@ -364,7 +364,8 @@ public:
 	virtual void Clear(bool delete_them);
 	virtual void NotifyConfigChanged();
 	TextureReplacer& GetReplacer() { return replacer_; }
-	void DumpTextureDirect(u32 texAddr, u16 w, u16 h, u16 fmt, u32 clutAddr, u16 clutFmt, u32 clutEntries, const std::string& outDirOverride = "");
+	void DumpTextureDirect(u32 texAddr, u16 w, u16 h, u16 fmt, u32 clutAddr, u16 clutFmt, u32 clutEntries, u32 hashAddr = 0, const std::string& outDirOverride = "");
+	void DumpAllCachedTextures();
 	virtual void ApplySamplingParams(const SamplerCacheKey &key) = 0;
 
 	// FramebufferManager keeps TextureCache updated about what regions of memory are being rendered to,

@@ -35,10 +35,12 @@
 #include "Core/HDRemaster.h"
 #include "Core/Config.h"
 #include "Core/Debugger/MemBlockInfo.h"
+#include "Core/HLE/TextureCapture.h"
 #include "Core/ELF/ParamSFO.h"
 #include "Core/System.h"
 #include "Core/HW/Display.h"
 #include "Core/Util/PathUtil.h"
+#include "ext/xxhash.h"
 #include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/TextureCacheCommon.h"
 #include "GPU/Common/TextureDecoder.h"
@@ -123,7 +125,7 @@ TextureCacheCommon::~TextureCacheCommon() {
 	FreeAlignedMemory(clutBufRaw_);
 	FreeAlignedMemory(expandClut_);
 }
-
+void (*g_processIsoTexQueueFn)() = nullptr;
 void TextureCacheCommon::StartFrame() {
 	ForgetLastTexture();
 	textureShaderCache_->Decimate();
@@ -172,13 +174,12 @@ void TextureCacheCommon::StartFrame() {
 	}
 }
 
-void TextureCacheCommon::DumpTextureDirect(u32 texAddr, u16 w, u16 h, u16 fmt, u32 clutAddr, u16 clutFmt, u32 clutEntries, const std::string& outDirOverride) {
+void TextureCacheCommon::DumpTextureDirect(u32 texAddr, u16 w, u16 h, u16 fmt, u32 clutAddr, u16 clutFmt, u32 clutEntries, u32 hashAddr, const std::string& outDirOverride) {
 	if (w == 0 || h == 0) return;
 	INFO_LOG(Log::G3D, "DumpTextureDirect: addr=0x%08x w=%d h=%d fmt=%d clutAddr=0x%08x", texAddr, w, h, fmt, clutAddr);
 	int bpp = textureBitsPerPixel[fmt & 0xF];
 	if (bpp == 0) return;
 
-	// For swizzled textures, bufw must be next power of 2
 	u32 bufw = w;
 	u32 pixelSize = (bpp * bufw * h) / 8;
 	if (pixelSize == 0) return;
@@ -190,24 +191,17 @@ void TextureCacheCommon::DumpTextureDirect(u32 texAddr, u16 w, u16 h, u16 fmt, u
 	const u8* clutData = clutAddr ? Memory::GetPointerUnchecked(clutAddr) : nullptr;
 
 	// Simple hash of pixel data
-	u32 hash = StableQuickTexHash(texData, pixelSize);
+	u32 hash = StableQuickTexHash(hashAddr ? Memory::GetPointerUnchecked(hashAddr) : texData, pixelSize);
 	// Simple hash of CLUT data
 	u32 clutHash = 0;
 	if (clutData && (fmt >= GE_TFMT_CLUT4 && fmt <= GE_TFMT_CLUT32)) {
-		u32 clutBytes = clutEntries * (clutFmt == 3 ? 4 : 2);
-		if (clutBytes > 2048) clutBytes = 2048;
-		u32 ch = 0xC0FECAFE;
-		for (u32 i = 0; i < clutBytes; i += 4) {
-			u32 val = 0;
-			memcpy(&val, clutData + i, (i + 4 <= clutBytes) ? 4 : clutBytes - i);
-			ch ^= val;
-			ch = (ch << 13) | (ch >> 19);
-			ch *= 0x5bd1e995;
-		}
-		clutHash = ch;
+		u32 clutBytes = std::min(clutMaxBytes_, (u32)2048);
+		if (clutBytes == 0) clutBytes = clutEntries * (clutFmt == 3 ? 4 : 2);
+		u32 rawHash = replacer_.Enabled() ?
+			XXH32(clutData, clutBytes, 0xC0108888) :
+			(u32)(XXH3_64bits(clutData, clutBytes) & 0xFFFFFFFF);
+		clutHash = rawHash ^ gstate.clutformat;
 	}
-
-
 
 	// Decode to RGBA
 	std::vector<u32> decoded(w * h, 0);
@@ -254,7 +248,6 @@ void TextureCacheCommon::DumpTextureDirect(u32 texAddr, u16 w, u16 h, u16 fmt, u
 
 	char filename[512];
 	snprintf(filename, sizeof(filename), "%s\\%08x%08x%08x.png", outDir.c_str(), texAddr, clutHash, hash);
-
 	FILE* pngf = fopen(filename, "wb");
 	if (pngf) {
 		png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
@@ -562,6 +555,10 @@ TexCacheEntry *TextureCacheCommon::SetTexture() {
 		cluthash = 0;
 	}
 	u64 cachekey = TexCacheEntry::CacheKey(texaddr, texFormat, dim, cluthash);
+
+	if (g_isoTexDumpActive) {
+		g_Config.bSaveNewTextures = true;
+	}
 
 	int bufw = GetTextureBufw(0, texaddr, texFormat);
 	u8 maxLevel = gstate.getTextureMaxLevel();

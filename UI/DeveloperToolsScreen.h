@@ -58,4 +58,7 @@ private:
 
 	int testSliderValue_ = 0;
 	bool pretendIngame_ = false;
+
 };
+
+void ProcessIsoTexQueue();

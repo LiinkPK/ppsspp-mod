@@ -35,6 +35,7 @@
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/sceGe.h"
 #include "Core/HLE/sceKernelMemory.h"
+#include "Core/HLE/TextureCapture.h"
 #include "Core/Core.h"
 #include "Core/MemMap.h"
 #include "Core/System.h"
@@ -57,6 +58,7 @@
 #include "UI/OnScreenDisplay.h"
 #include "UI/IconCache.h"
 #include "UI/MiscViews.h"
+#include <thread>
 #include "windows.h"
 #include <zlib.h>
 
@@ -107,6 +109,77 @@ static bool SafeMemcpy(u8* dst, const u8* src, size_t len) {
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER) {
 		return false;
+	}
+}
+
+struct IsoTexEntry { u32 texPSP; u16 w, h, fmt; u32 clutPSP; u16 clutFmt; u32 clutEntries; };
+static std::vector<IsoTexEntry> g_isoTexQueue;
+
+static std::vector<u32> g_isoTexAllocs;
+
+static void SubmitTextureThroughGE(u32 texPSP, u16 w, u16 h, u16 fmt, u32 clutPSP, u16 clutFmt, u32 clutEntries) {
+	u32 dlSize = 512;
+	u32 dlPtr = userMemory.Alloc(dlSize, false, "tex_dl");
+	if (dlPtr == (u32)-1) return;
+	u32 wp = dlPtr;
+	auto WC = [&](u8 cmd, u32 data) { Memory::Write_U32(((u32)cmd << 24) | (data & 0xFFFFFF), wp); wp += 4; };
+	auto WCAddr = [&](u8 cmd, u32 addr) { WC(GE_CMD_BASE, (addr >> 8) & 0xFF0000); WC(cmd, addr & 0xFFFFFF); };
+	auto log2u = [](u32 x) -> u32 { u32 r = 0; while ((1u << r) < x) r++; return r; };
+	WC(GE_CMD_TEXTUREMAPENABLE, 1);
+	WC(GE_CMD_TEXMODE, 0);
+	WC(GE_CMD_TEXFORMAT, fmt);
+	WC(GE_CMD_TEXFILTER, (1 << 8) | 1);
+	WC(GE_CMD_TEXWRAP, (1 << 8) | 1);
+	WC(GE_CMD_TEXFUNC, (0 << 16) | (1 << 8) | 0);
+	WC(GE_CMD_TEXMAPMODE, 0 | (1 << 8));
+	WCAddr(GE_CMD_TEXADDR0, texPSP);
+	WC(GE_CMD_TEXBUFWIDTH0, w | ((texPSP & 0xFF000000) >> 8));
+	WC(GE_CMD_TEXSIZE0, log2u(w) | (log2u(h) << 8));
+	WC(GE_CMD_TEXFLUSH, 0);
+	if (clutPSP && clutEntries > 0) {
+		WCAddr(GE_CMD_CLUTADDR, clutPSP);
+		WC(GE_CMD_CLUTADDRUPPER, (clutPSP & 0xFF000000) >> 8);
+		WC(GE_CMD_CLUTFORMAT, clutFmt | ((clutEntries - 1) << 8));
+		WC(GE_CMD_LOADCLUT, (clutEntries + 7) / 8);
+	}
+	u32 vtxSize = 32;
+	u32 vtxPtr = userMemory.Alloc(vtxSize, false, "tex_vtx");
+	if (vtxPtr == (u32)-1) { userMemory.Free(dlPtr); return; }
+	struct Vtx { u16 u, v; u32 col; float x, y, z; };
+	Vtx* vtx = (Vtx*)Memory::GetPointerUnchecked(vtxPtr);
+	vtx[0] = { 0, 0, 0xFFFFFFFF, 0.0f, 0.0f, 0.0f };
+	vtx[1] = { (u16)w, (u16)h, 0xFFFFFFFF, 1.0f, 1.0f, 0.0f };
+	u32 vtype = GE_VTYPE_TC_16BIT | GE_VTYPE_COL_8888 | GE_VTYPE_POS_FLOAT | GE_VTYPE_THROUGH;
+	WC(GE_CMD_VERTEXTYPE, vtype);
+	WCAddr(GE_CMD_VADDR, vtxPtr);
+	WC(GE_CMD_PRIM, (GE_PRIM_RECTANGLES << 16) | 2);
+	WC(GE_CMD_FINISH, 0);
+	WC(GE_CMD_END, 0);
+	gpu->EnableInterrupts(false);
+	u32 stallAddr = wp;
+	u32 cbId = (u32)-1;
+	u32 optParam = 0;
+	hleCall(sceGe_user, u32, sceGeListEnQueue, dlPtr, stallAddr, cbId, optParam);
+	gpu->EnableInterrupts(true);
+	userMemory.Free(vtxPtr);
+	userMemory.Free(dlPtr);
+}
+
+void ProcessIsoTexQueue() {
+	if (!g_isoTexDumpActive || g_isoTexQueue.empty()) return;
+	int batch = (int)g_isoTexQueue.size() < 32 ? (int)g_isoTexQueue.size() : 32;
+	for (int i = 0; i < batch; i++) {
+		auto& e = g_isoTexQueue[i];
+		SubmitTextureThroughGE(e.texPSP, e.w, e.h, e.fmt, e.clutPSP, e.clutFmt, e.clutEntries);
+	}
+	g_isoTexQueue.erase(g_isoTexQueue.begin(), g_isoTexQueue.begin() + batch);
+	if (g_isoTexQueue.empty()) {
+		g_isoTexDumpActive = false;
+		for (u32 a : g_isoTexAllocs) userMemory.Free(a);
+		g_isoTexAllocs.clear();
+		g_Config.bSaveNewTextures = false;
+		g_Config.bReplaceTextures = false;
+		g_OSD.Show(OSDType::MESSAGE_SUCCESS, "Texture extraction complete!", 5.0f);
 	}
 }
 
@@ -207,6 +280,7 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 						u32 gimLen = gr.len;
 						if (gr.offset + (s64)gimLen > (s64)fsize)
 							gimLen = (u32)((s64)fsize - gr.offset);
+						if (gr.offset + (s64)gimLen >= (s64)fsize) continue;
 						FlushAllocs();
 						s64 gimOffset = gr.offset;
 						u32 gimPSP = userMemory.Alloc(gimLen, false, "folder_gim");
@@ -241,6 +315,7 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 							}
 							pos += blen;
 						}
+						
 					}
 
 					for (size_t bi = 0; bi < blocks.size(); bi++) {
@@ -268,8 +343,7 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 						std::string fnameLower = fname;
 						for (auto& ch : fnameLower) ch = (char)tolower((unsigned char)ch);
 						bool isGMO = fnameLower.size() >= 4 && fnameLower.substr(fnameLower.size() - 4) == ".gmo";
-						bool hasGeometry = isGMO && (std::search(fileData.begin(), fileData.end(), (const u8*)"Shape", (const u8*)"Shape" + 5) != fileData.end());
-						if (hasGeometry && img.c16 == 8 && img.w > 0 && img.h > 0) {
+						if (img.c16 == 8 && img.w > 0 && img.h > 0) {
 							int pitch = (img.fmt == GE_TFMT_CLUT4) ? (img.w / 2) : img.w;
 							int bxc = pitch / 16;
 							int byc = img.h / 8;
@@ -280,13 +354,13 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 									if (!Memory::IsValidAddress(img.addr) || !Memory::IsValidAddress(unswizPSP)) { userMemory.Free(unswizPSP); continue; }
 									DoUnswizzleTex16(Memory::GetPointerUnchecked(img.addr), (u32*)Memory::GetPointerUnchecked(unswizPSP), bxc, byc, pitch);
 									allocs.push_back(unswizPSP);
-									gpu->GetTextureCacheCommon()->DumpTextureDirect(unswizPSP, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries, outDir);
+									gpu->GetTextureCacheCommon()->DumpTextureDirect(unswizPSP, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries, img.addr, outDir);
 									dumped++;
 									continue;
 								}
 							}
 						}
-						gpu->GetTextureCacheCommon()->DumpTextureDirect(img.addr, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries, outDir);
+						gpu->GetTextureCacheCommon()->DumpTextureDirect(img.addr, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries, 0, outDir);
 						dumped++;
 
 					}
@@ -310,9 +384,14 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 
 	// Dump FROM ISO
 
-	list->Add(new Choice(dev->T("Dump All Textures From ISO")))->OnClick.Add([](UI::EventParams& e) {
-		std::string gameID = g_paramSFO.GetDiscID();
-
+	list->Add(new Choice(dev->T("Dump All Textures From ISO")))->OnClick.Add([this](UI::EventParams& e) {
+		screenManager()->push(new UI::MessagePopupScreen(
+			"Dump All Textures From ISO",
+			"PPSSPP will freeze while extracting textures. Do not close PPSSPP. Press OK to start.",
+			"OK", "Cancel",
+			[this](bool yes) {
+				if (!yes) return;
+					std::string gameID = g_paramSFO.GetDiscID();
 
 		// Recursively collect every .gmo and .gim file from the mounted ISO.
 		std::vector<std::string> files;
@@ -367,7 +446,7 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 			for (auto& c : ext) c = (char)tolower((unsigned char)c);
 			extCount[ext]++;
 		}
-		for (const auto& kv : extCount)
+		for (const auto& kv : extCount);
 
 		// Also check for standalone .gim/.gmo files
 		for (const auto& af : allFiles) {
@@ -453,6 +532,10 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 		for (size_t fi = 0; fi < gimEntries.size(); fi++) {
 			const GimEntry& ge = gimEntries[fi];
 
+			std::string srcLower = ge.srcFile;
+			for (auto& c : srcLower) c = (char)tolower((unsigned char)c);
+			bool isGMO = srcLower.size() >= 4 && srcLower.substr(srcLower.size() - 4) == ".gmo";
+
 			std::vector<u8> gim((size_t)ge.len);
 			int gfd = pspFileSystem.OpenFile(ge.srcFile, FILEACCESS_READ);
 			if (gfd < 0) continue;
@@ -469,7 +552,8 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 				if (gimPSP == (u32)-1) continue;
 			}
 			Memory::MemcpyUnchecked(gimPSP, gim.data(), gimLen);
-			allocs.push_back(gimPSP);
+			if (isGMO) g_isoTexAllocs.push_back(gimPSP);
+			else allocs.push_back(gimPSP);
 
 			struct Block { u16 type; u32 addr; u16 fmt, w, h; u32 pos; u16 swizzle; u16 c16; };
 			std::vector<Block> blocks;
@@ -530,15 +614,18 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 							if (unswizPSP != (u32)-1) {
 								if (Memory::IsValidAddress(img.addr) && Memory::IsValidAddress(unswizPSP)) {
 									DoUnswizzleTex16(Memory::GetPointerUnchecked(img.addr), (u32*)Memory::GetPointerUnchecked(unswizPSP), bxc, byc, pitch);
-									allocs.push_back(unswizPSP);
-									gpu->GetTextureCacheCommon()->DumpTextureDirect(unswizPSP, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries);
+									if (isGMO) g_isoTexAllocs.push_back(unswizPSP);
+									else allocs.push_back(unswizPSP);
+									if (isGMO) g_isoTexQueue.push_back({ unswizPSP, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries });
+									else gpu->GetTextureCacheCommon()->DumpTextureDirect(unswizPSP, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries, 0);
 									dumped++;
 									goto next_block;
 								}
 							}
 						}
 					}
-					gpu->GetTextureCacheCommon()->DumpTextureDirect(img.addr, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries);
+					if (isGMO) g_isoTexQueue.push_back({ img.addr, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries });
+					else gpu->GetTextureCacheCommon()->DumpTextureDirect(img.addr, img.w, img.h, img.fmt, clutAddr, clutFmt, clutEntries, 0);
 					dumped++;
 				}
 			next_block:;
@@ -732,7 +819,7 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 
 						gpu->GetTextureCacheCommon()->DumpTextureDirect(
 							pspPix, texW, texH, texFmt,
-							pspClut, texClutFmt, texClutEnts);
+							pspClut, texClutFmt, texClutEnts, 0);
 
 						dumped++;
 						if (allocs.size() >= BATCH) FlushAllocs();
@@ -744,10 +831,15 @@ void DeveloperToolsScreen::CreateTextureReplacementTab(UI::LinearLayout* list) {
 		slot_done:;
 		}
 
+		g_Config.bReplaceTextures = true;
+		g_isoTexDumpActive = true;
+
 		char msg[128];
 		snprintf(msg, sizeof(msg), "ISO done: %d files, %d images", processed, dumped);
-		g_OSD.Show(OSDType::MESSAGE_INFO, msg, 5.0f);
-		});
+		g_OSD.Show(OSDType::MESSAGE_INFO, "Queue ready - press Play to extract textures", 10.0f);
+		}
+		));
+	});
 
 	list->Add(new CheckBox(&g_Config.bReplaceTextures, dev->T("Replace textures")));
 

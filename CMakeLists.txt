@@ -2337,6 +2337,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/sceImpose.h
 	Core/HLE/sceIo.cpp
 	Core/HLE/sceIo.h
+	Core/HLE/TextureCapture.cpp
+	Core/HLE/TextureCapture.h
 	Core/HLE/sceJpeg.cpp
 	Core/HLE/sceJpeg.h
 	Core/HLE/sceKernel.cpp

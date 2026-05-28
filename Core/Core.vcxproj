@@ -615,6 +615,7 @@
     <ClCompile Include="HLE\sceHttp.cpp" />
     <ClCompile Include="HLE\sceImpose.cpp" />
     <ClCompile Include="HLE\sceIo.cpp" />
+    <ClCompile Include="HLE\TextureCapture.cpp" />
     <ClCompile Include="HLE\sceJpeg.cpp" />
     <ClCompile Include="HLE\sceKernel.cpp" />
     <ClCompile Include="HLE\sceKernelAlarm.cpp" />
@@ -1114,6 +1115,7 @@
     <ClInclude Include="HLE\sceHttp.h" />
     <ClInclude Include="HLE\sceImpose.h" />
     <ClInclude Include="HLE\sceIo.h" />
+    <ClInclude Include="HLE\TextureCapture.h" />
     <ClInclude Include="HLE\sceJpeg.h" />
     <ClInclude Include="HLE\sceKernel.h" />
     <ClInclude Include="HLE\sceKernelAlarm.h" />
